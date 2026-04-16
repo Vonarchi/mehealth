@@ -91,7 +91,7 @@ export const bloatingTriggers = [
 
 export const feedPosts = [
   {
-    author: "Coach Dee",
+    author: "Coach-led",
     role: "Challenge Coach",
     title: "Today’s reminder",
     body: "Your job is not to be perfect. Your job is to complete today’s checklist and protect your eating window.",
@@ -103,7 +103,7 @@ export const feedPosts = [
     body: "Three days in a row of hitting water, movement, and protein-first meals is a real win. Small habits create big results.",
   },
   {
-    author: "Coach Dee",
+    author: "Coach-led",
     role: "Food Focus",
     title: "Break your fast with protein",
     body: "Start with protein so cravings stay lower and your meals stay structured instead of random.",
