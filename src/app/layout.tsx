@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Her Reset | Accountability",
+  title: "MeHealth | Accountability",
   description:
     "12-week guided body reset: fasting windows, bowl portions, hydration, movement, measurements, and daily accountability.",
 };

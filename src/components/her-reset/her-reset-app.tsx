@@ -19,14 +19,17 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 import { formatDurationClock, fastingWindowMinutes } from "@/lib/fasting-window";
-import { loadPersisted, savePersisted, type PersistedState } from "@/lib/her-reset-persist";
+import { formatCountdown, getFastingPhase, getMinutesUntilPhaseEnd } from "@/lib/fasting-live";
+import {
+  buildDailyLog,
+  computeChallengeWeek,
+  computeWeeklyWins,
+  defaultChecks,
+  getDateKey,
+  rolloverDay,
+} from "@/lib/daily-log";
+import { clearPersisted, defaultState, loadPersisted, savePersisted, type PersistedState } from "@/lib/her-reset-persist";
 import type { ChecklistState, TabId } from "@/lib/her-reset-types";
-
-const TAB_IDS: TabId[] = ["dashboard", "fasting", "meals", "progress", "community", "coach"];
-
-function isTabId(value: unknown): value is TabId {
-  return typeof value === "string" && (TAB_IDS as string[]).includes(value);
-}
 import {
   approvedFastedItems,
   bloatingTriggers,
@@ -42,9 +45,7 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
-  CardTitle,
   Checkbox,
   Input,
   Label,
@@ -57,15 +58,11 @@ import {
   Textarea,
 } from "@/components/her-reset/ui";
 
-const defaultChecks: ChecklistState = {
-  fasting: true,
-  water: false,
-  acv: true,
-  mct: false,
-  bowl: true,
-  move: true,
-  consistent: false,
-};
+const TAB_IDS: TabId[] = ["dashboard", "fasting", "meals", "progress", "community", "coach"];
+
+function isTabId(value: unknown): value is TabId {
+  return typeof value === "string" && (TAB_IDS as string[]).includes(value);
+}
 
 const defaultMeasurements = {
   weight: "",
@@ -131,71 +128,128 @@ export function HerResetApp() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const fastWindowFieldsRef = useRef<HTMLDivElement>(null);
   const fastStartInputRef = useRef<HTMLInputElement>(null);
+  const lastPhaseRef = useRef<string | null>(null);
 
   const [hydrated, setHydrated] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [lastActiveDate, setLastActiveDate] = useState(getDateKey());
+  const [challengeStartDate, setChallengeStartDate] = useState(getDateKey());
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [currentWeek, setCurrentWeek] = useState(1);
   const [fastStart, setFastStart] = useState("20:00");
   const [fastEnd, setFastEnd] = useState("12:00");
-  const [waterCount, setWaterCount] = useState(3);
-  const [movementMinutes, setMovementMinutes] = useState(20);
+  const [waterCount, setWaterCount] = useState(0);
+  const [movementMinutes, setMovementMinutes] = useState(0);
+  const [movementTarget, setMovementTarget] = useState(20);
   const [notes, setNotes] = useState("");
   const [measurements, setMeasurements] = useState(defaultMeasurements);
   const [checks, setChecks] = useState<ChecklistState>(defaultChecks);
   const [bloatingLogged, setBloatingLogged] = useState<string[]>([]);
   const [feedLikes, setFeedLikes] = useState<Record<number, number>>({});
+  const [feedComments, setFeedComments] = useState<Record<number, string[]>>({});
+  const [feedCelebrations, setFeedCelebrations] = useState<Record<number, number>>({});
   const [photoMeta, setPhotoMeta] = useState<Array<{ name: string; size: number; savedAt: string }>>([]);
+  const [dailyHistory, setDailyHistory] = useState<PersistedState["dailyHistory"]>([]);
+  const [measurementHistory, setMeasurementHistory] = useState<PersistedState["measurementHistory"]>([]);
+  const [journalEntries, setJournalEntries] = useState<PersistedState["journalEntries"]>([]);
+  const [weeklyResetChecks, setWeeklyResetChecks] = useState<Record<string, boolean>>({});
+  const [remindersEnabled, setRemindersEnabled] = useState(false);
+  const [openCommentIdx, setOpenCommentIdx] = useState<number | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
 
   useEffect(() => {
-    const p = loadPersisted();
+    const tick = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    const loaded = loadPersisted() ?? defaultState();
+    const rolled = rolloverDay(loaded.lastActiveDate, {
+      checks: loaded.checks,
+      waterCount: loaded.waterCount,
+      movementMinutes: loaded.movementMinutes,
+      bloatingLogged: loaded.bloatingLogged,
+      dailyHistory: loaded.dailyHistory,
+      notes: loaded.notes,
+      journalEntries: loaded.journalEntries,
+    });
+
     startTransition(() => {
-      if (p) {
-        if (isTabId(p.activeTab)) setActiveTab(p.activeTab);
-        if (typeof p.currentWeek === "number") setCurrentWeek(p.currentWeek);
-        if (typeof p.fastStart === "string") setFastStart(p.fastStart);
-        if (typeof p.fastEnd === "string") setFastEnd(p.fastEnd);
-        if (typeof p.waterCount === "number") setWaterCount(p.waterCount);
-        if (typeof p.movementMinutes === "number") setMovementMinutes(p.movementMinutes);
-        if (typeof p.notes === "string") setNotes(p.notes);
-        if (p.measurements && typeof p.measurements === "object") setMeasurements({ ...defaultMeasurements, ...p.measurements });
-        if (p.checks && typeof p.checks === "object") setChecks({ ...defaultChecks, ...p.checks });
-        if (Array.isArray(p.bloatingLogged)) setBloatingLogged(p.bloatingLogged);
-        if (p.feedLikes && typeof p.feedLikes === "object") setFeedLikes(p.feedLikes);
-        if (Array.isArray(p.photoMeta)) setPhotoMeta(p.photoMeta);
-      }
+      setLastActiveDate(rolled.lastActiveDate);
+      setChallengeStartDate(loaded.challengeStartDate);
+      if (isTabId(loaded.activeTab)) setActiveTab(loaded.activeTab);
+      setCurrentWeek(loaded.currentWeek || computeChallengeWeek(loaded.challengeStartDate));
+      setFastStart(loaded.fastStart);
+      setFastEnd(loaded.fastEnd);
+      setWaterCount(rolled.waterCount);
+      setMovementMinutes(rolled.movementMinutes);
+      setMovementTarget(loaded.movementTarget);
+      setNotes(rolled.notes);
+      setMeasurements({ ...defaultMeasurements, ...loaded.measurements });
+      setChecks(rolled.checks);
+      setBloatingLogged(rolled.bloatingLogged);
+      setFeedLikes(loaded.feedLikes);
+      setFeedComments(loaded.feedComments);
+      setFeedCelebrations(loaded.feedCelebrations);
+      setPhotoMeta(loaded.photoMeta);
+      setDailyHistory(rolled.dailyHistory);
+      setMeasurementHistory(loaded.measurementHistory);
+      setJournalEntries(rolled.journalEntries);
+      setWeeklyResetChecks(loaded.weeklyResetChecks);
+      setRemindersEnabled(loaded.remindersEnabled);
       setHydrated(true);
     });
   }, []);
 
   const persistSnapshot = useCallback((): PersistedState => {
     return {
-      v: 1,
+      v: 2,
+      lastActiveDate,
+      challengeStartDate,
       activeTab,
       currentWeek,
       fastStart,
       fastEnd,
       waterCount,
       movementMinutes,
+      movementTarget,
       notes,
       measurements,
       checks,
       bloatingLogged,
       feedLikes,
+      feedComments,
+      feedCelebrations,
       photoMeta,
+      dailyHistory,
+      measurementHistory,
+      journalEntries,
+      weeklyResetChecks,
+      remindersEnabled,
     };
   }, [
     activeTab,
     bloatingLogged,
+    challengeStartDate,
     checks,
     currentWeek,
+    dailyHistory,
     fastEnd,
     fastStart,
+    feedCelebrations,
+    feedComments,
     feedLikes,
+    journalEntries,
+    lastActiveDate,
+    measurementHistory,
     measurements,
     movementMinutes,
+    movementTarget,
     notes,
     photoMeta,
+    remindersEnabled,
     waterCount,
+    weeklyResetChecks,
   ]);
 
   useEffect(() => {
@@ -216,8 +270,92 @@ export function HerResetApp() {
     if (n >= 6) setChecks((prev) => ({ ...prev, water: true }));
   };
 
+  const logMovement = (minutes: number) => {
+    const next = Math.min(120, movementMinutes + minutes);
+    setMovementMinutes(next);
+    if (next >= movementTarget) setChecks((c) => ({ ...c, move: true }));
+  };
+
+  const bumpCelebrate = (idx: number) => {
+    setFeedCelebrations((prev) => ({ ...prev, [idx]: (prev[idx] ?? 0) + 1 }));
+  };
+
+  const submitComment = (idx: number) => {
+    const text = commentDraft.trim();
+    if (!text) return;
+    setFeedComments((prev) => ({ ...prev, [idx]: [...(prev[idx] ?? []), text] }));
+    setCommentDraft("");
+    setOpenCommentIdx(null);
+  };
+
+  const saveMeasurementCheckIn = () => {
+    const hasValue = Object.values(measurements).some((v) => v.trim());
+    if (!hasValue) return;
+    setMeasurementHistory((prev) => [...prev, { date: getDateKey(), values: { ...measurements } }]);
+  };
+
+  const toggleReminders = async () => {
+    if (!remindersEnabled) {
+      if (typeof window === "undefined" || !("Notification" in window)) return;
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") setRemindersEnabled(true);
+      return;
+    }
+    setRemindersEnabled(false);
+  };
+
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(persistSnapshot(), null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mehealth-export-${getDateKey()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const resetAllData = () => {
+    if (!window.confirm("Reset all saved progress? This cannot be undone.")) return;
+    clearPersisted();
+    window.location.reload();
+  };
+
+  const syncWeekFromChallenge = () => {
+    setCurrentWeek(computeChallengeWeek(challengeStartDate));
+  };
+
   const fastingMinutes = useMemo(() => fastingWindowMinutes(fastEnd, fastStart), [fastEnd, fastStart]);
   const targetFastDisplay = fastingMinutes !== null ? formatDurationClock(fastingMinutes) : "—";
+  const fastingPhase = useMemo(() => getFastingPhase(fastEnd, fastStart, now), [fastEnd, fastStart, now]);
+  const phaseCountdown = useMemo(() => getMinutesUntilPhaseEnd(fastEnd, fastStart, now), [fastEnd, fastStart, now]);
+  const phaseCountdownDisplay = phaseCountdown !== null ? formatCountdown(phaseCountdown) : "—";
+
+  const todayLog = useMemo(
+    () => buildDailyLog(getDateKey(), checks, waterCount, movementMinutes),
+    [checks, waterCount, movementMinutes],
+  );
+  const weeklyWins = useMemo(() => computeWeeklyWins(dailyHistory, todayLog), [dailyHistory, todayLog]);
+
+  const coachStats = useMemo(() => {
+    const logs = [...dailyHistory, todayLog];
+    const avgCompletion = logs.length
+      ? Math.round(logs.reduce((sum, log) => sum + log.completion, 0) / logs.length)
+      : completion;
+    const waterGoalDays = logs.filter((log) => log.waterCount >= 6).length;
+    const fastingDays = logs.filter((log) => log.checks.fasting).length;
+    return { avgCompletion, waterGoalDays, fastingDays, daysLogged: logs.length };
+  }, [completion, dailyHistory, todayLog]);
+
+  useEffect(() => {
+    if (!remindersEnabled || typeof window === "undefined" || Notification.permission !== "granted") return;
+    const phaseKey = `${fastingPhase ?? "unknown"}-${getDateKey()}`;
+    if (lastPhaseRef.current === phaseKey) return;
+    if (lastPhaseRef.current !== null && fastingPhase) {
+      const label = fastingPhase === "eating" ? "Eating window is open." : "Fasting window has started.";
+      new Notification("MeHealth", { body: label });
+    }
+    lastPhaseRef.current = phaseKey;
+  }, [fastingPhase, remindersEnabled]);
 
   const handleMeasurement = (key: keyof typeof measurements, value: string) => {
     setMeasurements((prev) => ({ ...prev, [key]: value }));
@@ -250,6 +388,10 @@ export function HerResetApp() {
   };
 
   const startToday = () => {
+    setChecks({ ...defaultChecks });
+    setWaterCount(0);
+    setMovementMinutes(0);
+    setBloatingLogged([]);
     setActiveTab("dashboard");
     requestAnimationFrame(() => {
       checklistAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -269,9 +411,9 @@ export function HerResetApp() {
                   <Badge className="bg-white/15 text-white border border-white/20 rounded-full px-4 py-1 mb-4">
                     12-Week Guided Body Reset
                   </Badge>
-                  <h1 className="text-3xl md:text-5xl font-semibold tracking-tight leading-tight">Her Reset Accountability App</h1>
+                  <h1 className="text-3xl md:text-5xl font-semibold tracking-tight leading-tight">MeHealth Accountability</h1>
                   <p className="text-white/85 mt-3 max-w-2xl text-sm md:text-base">
-                    A women&apos;s transformation platform built around fasting windows, bowl-based portioning, hydration, movement,
+                    A guided body reset platform built around fasting windows, bowl-based portioning, hydration, movement,
                     measurements, progress photos, and coach-led daily accountability.
                   </p>
                   <div className="flex flex-wrap gap-3 mt-5">
@@ -381,7 +523,7 @@ export function HerResetApp() {
                       ))}
                     </div>
                     <p className="text-sm text-slate-500">
-                      The app can send reminders throughout the day and convert this into streaks, badges, and coach alerts.
+                      Tap bottles as you drink. Hitting 6 auto-checks your water goal for today.
                     </p>
                   </CardContent>
                 </Card>
@@ -415,27 +557,41 @@ export function HerResetApp() {
                           ? "First 6 weeks: use a 32 oz bowl to build structured, disciplined meals."
                           : "Last 6 weeks: switch to a 24 oz bowl to tighten portions and level up discipline."}
                       </p>
+                      <Button variant="outline" size="sm" className="rounded-xl mt-3" onClick={syncWeekFromChallenge}>
+                        Sync week from challenge start
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card className="rounded-[2rem] border-0 shadow-sm bg-white/85">
                   <CardHeader>
-                    <SectionTitle icon={HeartPulse} title="Movement" subtitle="Adjust today&apos;s activity target." />
+                    <SectionTitle icon={HeartPulse} title="Movement" subtitle="Log minutes completed today." />
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <input
-                      type="range"
-                      min={0}
-                      max={120}
-                      step={5}
-                      value={movementMinutes}
-                      onChange={(e) => setMovementMinutes(Number(e.target.value))}
-                      className="w-full accent-fuchsia-600"
-                    />
-                    <div className="flex justify-between text-xs text-slate-500">
-                      <span>0 min</span>
-                      <span>120 min</span>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Logged today</span>
+                      <span className="font-semibold text-slate-900">{movementMinutes} / {movementTarget} min</span>
+                    </div>
+                    <Progress value={Math.min(100, Math.round((movementMinutes / Math.max(movementTarget, 1)) * 100))} />
+                    <div className="flex flex-wrap gap-2">
+                      {[10, 15, 20, 30].map((m) => (
+                        <Button key={m} size="sm" variant="outline" className="rounded-xl" onClick={() => logMovement(m)}>
+                          +{m} min
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Daily movement target</Label>
+                      <input
+                        type="range"
+                        min={10}
+                        max={90}
+                        step={5}
+                        value={movementTarget}
+                        onChange={(e) => setMovementTarget(Number(e.target.value))}
+                        className="w-full accent-fuchsia-600"
+                      />
                     </div>
                   </CardContent>
                 </Card>
@@ -490,22 +646,43 @@ export function HerResetApp() {
                     </Button>
                   </div>
 
-                  <div className="rounded-[1.5rem] bg-slate-950 text-white p-6">
-                    <p className="text-sm text-white/70">Fasting status</p>
-                    <div className="flex items-end gap-3 mt-2">
-                      <span className="text-4xl font-semibold">{targetFastDisplay}</span>
-                      <span className="text-white/70 pb-1">target fast</span>
+                  <div className="rounded-[1.5rem] bg-slate-950 text-white p-6 space-y-4">
+                    <div>
+                      <p className="text-sm text-white/70">
+                        {fastingPhase === "eating"
+                          ? "Eating window open"
+                          : fastingPhase === "fasting"
+                            ? "Fasting in progress"
+                            : "Set a valid window"}
+                      </p>
+                      <div className="flex items-end gap-3 mt-2">
+                        <span className="text-4xl font-semibold">{phaseCountdownDisplay}</span>
+                        <span className="text-white/70 pb-1">
+                          {fastingPhase === "eating" ? "until fast begins" : "until eating opens"}
+                        </span>
+                      </div>
                     </div>
-                    <p className="text-sm text-white/75 mt-2">
-                      Start: {fastStart} · Eat again: {fastEnd} · Monday–Saturday plan
-                    </p>
+                    <div className="border-t border-white/10 pt-4">
+                      <p className="text-sm text-white/70">Target fast length</p>
+                      <p className="text-2xl font-semibold mt-1">{targetFastDisplay}</p>
+                      <p className="text-sm text-white/75 mt-2">
+                        Fast starts: {fastStart} · Eating opens: {fastEnd} · Monday–Saturday plan
+                      </p>
+                    </div>
                   </div>
 
                   <div className="rounded-2xl bg-amber-50 p-4 border border-amber-100">
-                    <p className="font-medium text-slate-900">Optional reminders</p>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Push notifications can remind users when to start fasting, hydrate, take ACV, and close the eating window.
-                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-slate-900">Window reminders</p>
+                        <p className="text-sm text-slate-600 mt-1">
+                          Browser notifications when your eating or fasting phase changes.
+                        </p>
+                      </div>
+                      <Button variant={remindersEnabled ? "default" : "outline"} className="rounded-xl shrink-0" onClick={toggleReminders}>
+                        {remindersEnabled ? "On" : "Enable"}
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -661,6 +838,23 @@ export function HerResetApp() {
                       />
                     </div>
                   ))}
+                  <div className="md:col-span-2">
+                    <Button className="rounded-2xl w-full" onClick={saveMeasurementCheckIn}>
+                      Save today&apos;s check-in
+                    </Button>
+                  </div>
+                  {measurementHistory.length > 0 && (
+                    <div className="md:col-span-2 rounded-2xl bg-slate-50 p-4 max-h-40 overflow-y-auto">
+                      <p className="text-sm font-medium text-slate-800 mb-2">Check-in history</p>
+                      <ul className="space-y-1 text-xs text-slate-600">
+                        {[...measurementHistory].reverse().slice(0, 8).map((entry, i) => (
+                          <li key={`${entry.date}-${i}`}>
+                            {entry.date}: {Object.entries(entry.values).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(" · ") || "saved"}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <div className="md:col-span-2 rounded-2xl border border-dashed p-6 text-center bg-slate-50">
                     <Camera className="h-8 w-8 mx-auto text-slate-400" />
                     <p className="font-medium text-slate-800 mt-3">Upload progress photos</p>
@@ -687,14 +881,15 @@ export function HerResetApp() {
                     <SectionTitle icon={Trophy} title="Weekly wins" subtitle="Retention grows when users see more than just scale changes." />
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {[
-                      "Hit fasting window 5 days this week",
-                      "Reached water goal 4 days in a row",
-                      "Completed movement target 3 times",
-                      "Stayed on bowl plan for all main meals",
-                    ].map((win) => (
-                      <div key={win} className="rounded-2xl bg-amber-50 p-4 text-sm text-slate-700 border border-amber-100">
-                        {win}
+                    {weeklyWins.map((win) => (
+                      <div
+                        key={win.text}
+                        className={`rounded-2xl p-4 text-sm border ${
+                          win.earned ? "bg-emerald-50 text-emerald-900 border-emerald-100" : "bg-amber-50 text-slate-700 border-amber-100"
+                        }`}
+                      >
+                        {win.earned ? "✓ " : "○ "}
+                        {win.text}
                       </div>
                     ))}
                   </CardContent>
@@ -715,6 +910,18 @@ export function HerResetApp() {
                       placeholder="How did today feel? What triggered cravings? What made you proud?"
                       className="min-h-[160px] rounded-2xl"
                     />
+                    {journalEntries.length > 0 && (
+                      <div className="mt-4 rounded-2xl bg-slate-50 p-4 max-h-36 overflow-y-auto">
+                        <p className="text-sm font-medium text-slate-800 mb-2">Past entries</p>
+                        <ul className="space-y-2 text-xs text-slate-600">
+                          {[...journalEntries].reverse().slice(0, 5).map((entry, i) => (
+                            <li key={`${entry.date}-${i}`}>
+                              <span className="font-medium text-slate-700">{entry.date}:</span> {entry.text}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -753,13 +960,41 @@ export function HerResetApp() {
                             <Button size="sm" variant="outline" className="rounded-xl" onClick={() => bumpLike(idx)}>
                               Like {feedLikes[idx] ? `(${feedLikes[idx]})` : ""}
                             </Button>
-                            <Button size="sm" variant="outline" className="rounded-xl">
-                              Comment
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => setOpenCommentIdx(openCommentIdx === idx ? null : idx)}
+                            >
+                              Comment {(feedComments[idx]?.length ?? 0) > 0 ? `(${feedComments[idx].length})` : ""}
                             </Button>
-                            <Button size="sm" variant="outline" className="rounded-xl">
-                              Celebrate
+                            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => bumpCelebrate(idx)}>
+                              Celebrate {feedCelebrations[idx] ? `(${feedCelebrations[idx]})` : ""}
                             </Button>
                           </div>
+                          {openCommentIdx === idx && (
+                            <div className="mt-3 flex gap-2">
+                              <Input
+                                value={commentDraft}
+                                onChange={(e) => setCommentDraft(e.target.value)}
+                                placeholder="Write a comment..."
+                                className="rounded-xl h-10"
+                                onKeyDown={(e) => e.key === "Enter" && submitComment(idx)}
+                              />
+                              <Button size="sm" className="rounded-xl" onClick={() => submitComment(idx)}>
+                                Post
+                              </Button>
+                            </div>
+                          )}
+                          {(feedComments[idx]?.length ?? 0) > 0 && (
+                            <ul className="mt-3 space-y-1 text-xs text-slate-600">
+                              {feedComments[idx].map((c, i) => (
+                                <li key={i} className="rounded-lg bg-slate-50 px-3 py-2">
+                                  {c}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </motion.div>
                       ))}
                     </div>
@@ -802,10 +1037,20 @@ export function HerResetApp() {
                     <SectionTitle icon={Moon} title="Weekly reset day" subtitle="A dedicated rhythm for recovery and re-commitment." />
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm text-slate-700">
-                    <div className="rounded-2xl border border-slate-100 p-4">Up to 3 protein shakes</div>
-                    <div className="rounded-2xl border border-slate-100 p-4">1 bowl of bone broth</div>
-                    <div className="rounded-2xl border border-slate-100 p-4">Plenty of water</div>
-                    <div className="rounded-2xl border border-slate-100 p-4">Optional ACV twice this day</div>
+                    {[
+                      "Up to 3 protein shakes",
+                      "1 bowl of bone broth",
+                      "Plenty of water",
+                      "Optional ACV twice this day",
+                    ].map((item) => (
+                      <label key={item} className="flex items-center justify-between rounded-2xl border border-slate-100 p-4 cursor-pointer">
+                        <span>{item}</span>
+                        <Checkbox
+                          checked={weeklyResetChecks[item] ?? false}
+                          onCheckedChange={(value) => setWeeklyResetChecks((prev) => ({ ...prev, [item]: value }))}
+                        />
+                      </label>
+                    ))}
                   </CardContent>
                 </Card>
               </div>
@@ -816,47 +1061,62 @@ export function HerResetApp() {
             <div className="grid lg:grid-cols-[1fr_1fr] gap-6">
               <Card className="rounded-[2rem] border-0 shadow-sm bg-white/85">
                 <CardHeader>
-                  <SectionTitle icon={Users} title="Admin and coach panel" subtitle="This is where the business side lives." />
+                  <SectionTitle icon={Users} title="Compliance dashboard" subtitle="Live stats from member activity." />
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm text-slate-700">
-                  <div className="rounded-2xl border border-slate-100 p-4">Create new 12-week cohorts</div>
-                  <div className="rounded-2xl border border-slate-100 p-4">Schedule coach posts and reminders</div>
-                  <div className="rounded-2xl border border-slate-100 p-4">Review member compliance dashboards</div>
-                  <div className="rounded-2xl border border-slate-100 p-4">Unlock premium guides, recipes, and lessons</div>
-                  <div className="rounded-2xl border border-slate-100 p-4">Send nudges to inactive members</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl border border-slate-100 p-4">
+                      <p className="text-xs text-slate-500">Days logged</p>
+                      <p className="text-2xl font-semibold text-slate-900">{coachStats.daysLogged}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-100 p-4">
+                      <p className="text-xs text-slate-500">Avg completion</p>
+                      <p className="text-2xl font-semibold text-slate-900">{coachStats.avgCompletion}%</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-100 p-4">
+                      <p className="text-xs text-slate-500">Fasting days</p>
+                      <p className="text-2xl font-semibold text-slate-900">{coachStats.fastingDays}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-100 p-4">
+                      <p className="text-xs text-slate-500">Water goal days</p>
+                      <p className="text-2xl font-semibold text-slate-900">{coachStats.waterGoalDays}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="font-medium text-slate-900">Challenge cohort</p>
+                    <p className="mt-1">Started {challengeStartDate} · Currently week {currentWeek}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" className="rounded-xl" onClick={exportData}>
+                      Export member data
+                    </Button>
+                    <Button variant="outline" className="rounded-xl" onClick={resetAllData}>
+                      Reset all progress
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 
               <Card className="rounded-[2rem] border-0 shadow-sm bg-white/85">
                 <CardHeader>
-                  <SectionTitle
-                    icon={Sparkles}
-                    title="Recommended production stack"
-                    subtitle="For turning this prototype into a working product."
-                  />
+                  <SectionTitle icon={Sparkles} title="Coach actions" subtitle="Tools for running the 12-week program." />
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm text-slate-700">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <CardTitle className="text-base">Frontend</CardTitle>
-                    <CardDescription className="text-slate-700 mt-1">Next.js + Tailwind + shadcn/ui + Framer Motion</CardDescription>
+                  <div className="rounded-2xl border border-slate-100 p-4">
+                    <p className="font-medium text-slate-900">Schedule reminders</p>
+                    <p className="mt-1 text-slate-600">Members enable window reminders on the Fasting tab.</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <CardTitle className="text-base">Backend</CardTitle>
-                    <CardDescription className="text-slate-700 mt-1">
-                      Supabase for auth, profiles, challenge data, checklists, photos, and notifications
-                    </CardDescription>
+                  <div className="rounded-2xl border border-slate-100 p-4">
+                    <p className="font-medium text-slate-900">Review compliance</p>
+                    <p className="mt-1 text-slate-600">Use the dashboard stats and weekly wins to spot adherence trends.</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <CardTitle className="text-base">Payments</CardTitle>
-                    <CardDescription className="text-slate-700 mt-1">
-                      Stripe for monthly membership, private coaching upsells, and cohort access
-                    </CardDescription>
+                  <div className="rounded-2xl border border-slate-100 p-4">
+                    <p className="font-medium text-slate-900">Weekly reset day</p>
+                    <p className="mt-1 text-slate-600">Members track reset-day items in the Community tab.</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <CardTitle className="text-base">Core entities</CardTitle>
-                    <CardDescription className="text-slate-700 mt-1">
-                      Users, challenge plans, daily logs, meals, measurements, photos, posts, comments, reminders
-                    </CardDescription>
+                  <div className="rounded-2xl border border-slate-100 p-4">
+                    <p className="font-medium text-slate-900">Progress check-ins</p>
+                    <p className="mt-1 text-slate-600">{measurementHistory.length} measurement logs · {photoMeta.length} photos uploaded</p>
                   </div>
                 </CardContent>
               </Card>
