@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MeHealth
 
-## Getting Started
+A 12-week guided body reset: fasting windows, bowl portions, hydration, movement,
+measurements, progress photos, and daily accountability.
 
-First, run the development server:
+Members create an account, start a free week through Stripe, and their progress
+saves to their account so it follows them to any device.
+
+## Run it
 
 ```bash
+npm install
+cp .env.example .env.local   # fill in the keys below
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+With no Supabase keys the app runs in **local-only mode**: no sign-in, no paywall,
+progress saved in the browser. Useful for design work.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. Supabase (accounts + cloud sync)
 
-## Learn More
+1. Create a project at supabase.com.
+2. Open the SQL editor and run `supabase/migrations/0001_accounts_and_billing.sql`.
+3. Project Settings → API: copy the URL, the publishable key and the secret key into
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`.
+4. Authentication → URL Configuration: set the Site URL to your app's URL
+   (confirmation and sign-in-link emails point there).
 
-To learn more about Next.js, take a look at the following resources:
+Members can read their own profile but can't change their subscription status; only
+the Stripe webhook (using the secret key) writes it.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. Stripe (subscriptions with a free week)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Create a Product ("MeHealth Membership") with a recurring monthly Price. Put the
+   `price_...` id in `STRIPE_PRICE_ID`, and the secret key in `STRIPE_SECRET_KEY`.
+2. Developers → Webhooks → add an endpoint at `https://YOUR-DOMAIN/api/billing/webhook`
+   listening for `checkout.session.completed` and
+   `customer.subscription.created/updated/deleted`. Put the signing secret in
+   `STRIPE_WEBHOOK_SECRET`.
+3. Settings → Billing → Customer portal: turn it on (lets members update cards and cancel).
+4. Set `NEXT_PUBLIC_PRICE_LABEL` (e.g. `$19.99/month`) so the paywall shows the price.
 
-## Deploy on Vercel
+The first subscription per member gets a `STRIPE_TRIAL_DAYS` free trial (default 7).
+Members keep access while `trialing`, `active`, or `past_due` (Stripe is retrying the card).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Local webhook testing:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+stripe listen --forward-to localhost:3000/api/billing/webhook
+```
+
+### 3. Deploy
+
+Add the same environment variables in Vercel, plus `NEXT_PUBLIC_SITE_URL`
+(your production URL), and redeploy.
+
+## How it fits together
+
+| Piece | Where |
+| --- | --- |
+| Tracker UI | `src/components/her-reset/` |
+| Sign-in, paywall, account bar, cloud save | `src/components/app-shell.tsx` |
+| Cloud pull/push of program state | `src/lib/cloud-sync.ts` |
+| Checkout, billing portal, webhook | `src/app/api/billing/*` |
+| Database tables and security rules | `supabase/migrations/` |

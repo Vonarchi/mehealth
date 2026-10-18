@@ -123,7 +123,12 @@ function SectionTitle({
   );
 }
 
-export function HerResetApp() {
+type HerResetAppProps = {
+  /** Called with the full program state after every change (used for cloud sync). */
+  onStateChange?: (state: PersistedState) => void;
+};
+
+export function HerResetApp({ onStateChange }: HerResetAppProps = {}) {
   const checklistAnchorRef = useRef<HTMLDivElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const fastWindowFieldsRef = useRef<HTMLDivElement>(null);
@@ -254,8 +259,10 @@ export function HerResetApp() {
 
   useEffect(() => {
     if (!hydrated) return;
-    savePersisted(persistSnapshot());
-  }, [hydrated, persistSnapshot]);
+    const snapshot = persistSnapshot();
+    savePersisted(snapshot);
+    onStateChange?.(snapshot);
+  }, [hydrated, persistSnapshot, onStateChange]);
 
   const bowlSize = currentWeek <= 6 ? "32 oz bowl" : "24 oz bowl";
 
