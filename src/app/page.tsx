@@ -1,5 +1,5 @@
-import { HerResetApp } from "@/components/her-reset/her-reset-app";
+import { AppShell } from "@/components/app-shell";
 
 export default function Home() {
-  return <HerResetApp />;
+  return <AppShell />;
 }
