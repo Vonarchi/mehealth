@@ -24,3 +24,49 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Semantic colors used by buttons and text that sits on accent/dark surfaces. */
+@theme {
+  --color-ink: #0f172a;
+  --color-on-ink: #ffffff;
+  --color-on-accent: #ffffff;
+}
+
+/* Dark "hive" theme: black + hot pink. Remaps the palette the app already uses,
+   so every screen switches without rewriting component classes. */
+.theme-hive {
+  color-scheme: dark;
+  --color-white: #17101a;
+  --color-slate-50: #20161f;
+  --color-slate-100: #2c1f2a;
+  --color-slate-200: #3b2a37;
+  --color-slate-300: #4d3848;
+  --color-slate-400: #9c8597;
+  --color-slate-500: #b8a2b3;
+  --color-slate-600: #cdb9c8;
+  --color-slate-700: #e3d3df;
+  --color-slate-800: #f2e7ef;
+  --color-slate-900: #ffffff;
+  --color-slate-950: #000000;
+  --color-pink-50: #2a1222;
+  --color-pink-100: #3b1230;
+  --color-pink-600: #ff3fa4;
+  --color-pink-700: #ff6db8;
+  --color-rose-50: #0b0709;
+  --color-rose-500: #ff2d95;
+  --color-fuchsia-50: #14090f;
+  --color-fuchsia-100: #3d1640;
+  --color-fuchsia-500: #ff4fb0;
+  --color-fuchsia-600: #ff2d95;
+  --color-fuchsia-700: #e0157a;
+  --color-violet-50: #1e1428;
+  --color-violet-100: #0b0709;
+  --color-emerald-50: #10231b;
+  --color-emerald-100: #1c3a2c;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-900: #d1fae5;
+  --color-amber-50: #261d0f;
+  --color-amber-100: #3d2e12;
+  --color-ink: #ff2d95;
+  --color-on-ink: #ffffff;
+}

@@ -33,11 +33,13 @@ import type { ChecklistState, TabId } from "@/lib/her-reset-types";
 import {
   approvedFastedItems,
   bloatingTriggers,
+  buildFeedPosts,
   challengeWeeks,
   dailyChecklistSeed,
-  feedPosts,
   mealIdeas,
 } from "@/components/her-reset/data";
+import { brands, initials, type BrandId } from "@/lib/brand";
+import { demoCohort, demoMemberState } from "@/lib/demo-data";
 import {
   Avatar,
   AvatarFallback,
@@ -101,6 +103,15 @@ function StatCard({
   );
 }
 
+function CoachStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-100 p-4">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-2xl font-semibold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
 function SectionTitle({
   icon: Icon,
   title,
@@ -123,7 +134,10 @@ function SectionTitle({
   );
 }
 
-export function HerResetApp() {
+export function HerResetApp({ brandId = "mehealth", demo = false }: { brandId?: BrandId; demo?: boolean } = {}) {
+  const brand = brands[brandId];
+  const feedPosts = useMemo(() => buildFeedPosts(brand.coachName, demo), [brand.coachName, demo]);
+  const cohort = useMemo(() => (demo ? demoCohort() : []), [demo]);
   const checklistAnchorRef = useRef<HTMLDivElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const fastWindowFieldsRef = useRef<HTMLDivElement>(null);
@@ -163,7 +177,7 @@ export function HerResetApp() {
   }, []);
 
   useEffect(() => {
-    const loaded = loadPersisted() ?? defaultState();
+    const loaded = loadPersisted(brand.storageKey) ?? (demo ? demoMemberState(defaultState()) : defaultState());
     const rolled = rolloverDay(loaded.lastActiveDate, {
       checks: loaded.checks,
       waterCount: loaded.waterCount,
@@ -199,7 +213,7 @@ export function HerResetApp() {
       setRemindersEnabled(loaded.remindersEnabled);
       setHydrated(true);
     });
-  }, []);
+  }, [brand.storageKey, demo]);
 
   const persistSnapshot = useCallback((): PersistedState => {
     return {
@@ -254,8 +268,8 @@ export function HerResetApp() {
 
   useEffect(() => {
     if (!hydrated) return;
-    savePersisted(persistSnapshot());
-  }, [hydrated, persistSnapshot]);
+    savePersisted(persistSnapshot(), brand.storageKey);
+  }, [hydrated, persistSnapshot, brand.storageKey]);
 
   const bowlSize = currentWeek <= 6 ? "32 oz bowl" : "24 oz bowl";
 
@@ -315,8 +329,9 @@ export function HerResetApp() {
   };
 
   const resetAllData = () => {
-    if (!window.confirm("Reset all saved progress? This cannot be undone.")) return;
-    clearPersisted();
+    const typed = window.prompt('This erases all saved progress on this device. Type RESET to confirm.');
+    if (typed?.trim().toUpperCase() !== "RESET") return;
+    clearPersisted(brand.storageKey);
     window.location.reload();
   };
 
@@ -399,31 +414,28 @@ export function HerResetApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-fuchsia-50 to-violet-100 p-4 md:p-8">
+    <div className={`min-h-screen bg-gradient-to-br from-rose-50 via-fuchsia-50 to-violet-100 p-4 md:p-8 ${brand.themeClass}`}>
       <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onPhotosSelected} />
 
       <div className="max-w-7xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="mb-6">
-          <Card className="border-0 rounded-[2rem] overflow-hidden shadow-xl bg-gradient-to-r from-fuchsia-600 via-pink-600 to-rose-500 text-white">
+          <Card className={`border-0 rounded-[2rem] overflow-hidden shadow-xl text-on-accent ${brand.heroClass}`}>
             <CardContent className="p-6 md:p-8">
               <div className="grid md:grid-cols-[1.4fr_.9fr] gap-6 items-center">
                 <div>
-                  <Badge className="bg-white/15 text-white border border-white/20 rounded-full px-4 py-1 mb-4">
-                    12-Week Guided Body Reset
+                  <Badge className="bg-on-accent/15 text-on-accent border border-on-accent/20 rounded-full px-4 py-1 mb-4">
+                    {brand.badge}
                   </Badge>
-                  <h1 className="text-3xl md:text-5xl font-semibold tracking-tight leading-tight">MeHealth Accountability</h1>
-                  <p className="text-white/85 mt-3 max-w-2xl text-sm md:text-base">
-                    A guided body reset platform built around fasting windows, bowl-based portioning, hydration, movement,
-                    measurements, progress photos, and coach-led daily accountability.
-                  </p>
+                  <h1 className="text-3xl md:text-5xl font-semibold tracking-tight leading-tight">{brand.appName}</h1>
+                  <p className="text-on-accent/85 mt-3 max-w-2xl text-sm md:text-base">{brand.tagline}</p>
                   <div className="flex flex-wrap gap-3 mt-5">
-                    <Button onClick={startToday} className="rounded-2xl bg-white text-fuchsia-700 hover:bg-white/90">
+                    <Button onClick={startToday} className="rounded-2xl bg-on-accent text-fuchsia-700 hover:bg-on-accent/90">
                       Start Today <ChevronRight className="ml-2 h-4 w-4" />
                     </Button>
                     <Button
                       variant="secondary"
                       onClick={() => setActiveTab("community")}
-                      className="rounded-2xl bg-white/15 text-white hover:bg-white/20 border-0"
+                      className="rounded-2xl bg-on-accent/15 text-on-accent hover:bg-on-accent/25 border-0"
                     >
                       Join Community
                     </Button>
@@ -515,7 +527,7 @@ export function HerResetApp() {
                           type="button"
                           onClick={() => setBottleCount(n)}
                           className={`rounded-2xl p-4 border text-sm font-medium transition ${
-                            n <= waterCount ? "bg-pink-600 text-white border-pink-600" : "bg-white border-slate-200 text-slate-600"
+                            n <= waterCount ? "bg-pink-600 text-on-accent border-pink-600" : "bg-white border-slate-200 text-slate-600"
                           }`}
                         >
                           Bottle {n}
@@ -542,7 +554,7 @@ export function HerResetApp() {
                           onClick={() => setCurrentWeek(week)}
                           className={`rounded-2xl py-3 text-sm font-medium border ${
                             week === currentWeek
-                              ? "bg-fuchsia-600 text-white border-fuchsia-600"
+                              ? "bg-fuchsia-600 text-on-accent border-fuchsia-600"
                               : "bg-white text-slate-700 border-slate-200"
                           }`}
                         >
@@ -610,8 +622,8 @@ export function HerResetApp() {
                   />
                 </CardHeader>
                 <CardContent className="space-y-5">
-                  <div ref={fastWindowFieldsRef} id="fast-window-custom" className="grid md:grid-cols-2 gap-4 scroll-mt-24">
-                    <div className="space-y-2">
+                  <div ref={fastWindowFieldsRef} id="fast-window-custom" className="grid grid-cols-1 md:grid-cols-2 gap-4 scroll-mt-24">
+                    <div className="space-y-2 min-w-0">
                       <Label>Fast starts</Label>
                       <Input
                         ref={fastStartInputRef}
@@ -621,7 +633,7 @@ export function HerResetApp() {
                         className="rounded-2xl h-12"
                       />
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-2 min-w-0">
                       <Label>Fast ends / eating window opens</Label>
                       <Input value={fastEnd} onChange={(e) => setFastEnd(e.target.value)} type="time" className="rounded-2xl h-12" />
                     </div>
@@ -646,9 +658,9 @@ export function HerResetApp() {
                     </Button>
                   </div>
 
-                  <div className="rounded-[1.5rem] bg-slate-950 text-white p-6 space-y-4">
+                  <div className="rounded-[1.5rem] bg-slate-950 text-on-accent p-6 space-y-4">
                     <div>
-                      <p className="text-sm text-white/70">
+                      <p className="text-sm text-on-accent/70">
                         {fastingPhase === "eating"
                           ? "Eating window open"
                           : fastingPhase === "fasting"
@@ -657,15 +669,15 @@ export function HerResetApp() {
                       </p>
                       <div className="flex items-end gap-3 mt-2">
                         <span className="text-4xl font-semibold">{phaseCountdownDisplay}</span>
-                        <span className="text-white/70 pb-1">
+                        <span className="text-on-accent/70 pb-1">
                           {fastingPhase === "eating" ? "until fast begins" : "until eating opens"}
                         </span>
                       </div>
                     </div>
-                    <div className="border-t border-white/10 pt-4">
-                      <p className="text-sm text-white/70">Target fast length</p>
+                    <div className="border-t border-on-accent/10 pt-4">
+                      <p className="text-sm text-on-accent/70">Target fast length</p>
                       <p className="text-2xl font-semibold mt-1">{targetFastDisplay}</p>
-                      <p className="text-sm text-white/75 mt-2">
+                      <p className="text-sm text-on-accent/75 mt-2">
                         Fast starts: {fastStart} · Eating opens: {fastEnd} · Monday–Saturday plan
                       </p>
                     </div>
@@ -946,8 +958,8 @@ export function HerResetApp() {
                           className="rounded-[1.5rem] border border-slate-100 bg-white p-4"
                         >
                           <div className="flex items-center gap-3 mb-3">
-                            <Avatar>
-                              <AvatarFallback>{post.author.slice(0, 2)}</AvatarFallback>
+                            <Avatar coach={post.coach}>
+                              <AvatarFallback coach={post.coach}>{initials(post.author)}</AvatarFallback>
                             </Avatar>
                             <div>
                               <p className="font-medium text-slate-900">{post.author}</p>
@@ -1016,17 +1028,15 @@ export function HerResetApp() {
                       This 12-week journey is not a crash diet. It is a guided system for discipline, confidence, consistency, and visible
                       transformation.
                     </p>
-                    <p>
-                      The app should reinforce that users are not just losing weight — they are learning a repeatable lifestyle.
-                    </p>
+                    <p>You are not just following a plan. You are building habits you can keep for life.</p>
                     <div className="rounded-2xl bg-fuchsia-50 p-4 border border-fuchsia-100">
-                      <p className="font-medium text-slate-900">Suggested engagement loops</p>
+                      <p className="font-medium text-slate-900">How you stay on track</p>
                       <ul className="list-disc pl-5 mt-2 space-y-1 text-sm">
-                        <li>Daily push reminders</li>
-                        <li>Streak badges</li>
-                        <li>Coach voice notes</li>
-                        <li>Weekly photo prompts</li>
-                        <li>Sunday reset and fluid-day check-in</li>
+                        <li>Fasting window reminders</li>
+                        <li>Your daily checklist score</li>
+                        <li>Weekly measurement and photo check-ins</li>
+                        <li>Sunday reset day</li>
+                        <li>Wins and encouragement from the group</li>
                       </ul>
                     </div>
                   </CardContent>
@@ -1061,39 +1071,88 @@ export function HerResetApp() {
             <div className="grid lg:grid-cols-[1fr_1fr] gap-6">
               <Card className="rounded-[2rem] border-0 shadow-sm bg-white/85">
                 <CardHeader>
-                  <SectionTitle icon={Users} title="Compliance dashboard" subtitle="Live stats from member activity." />
+                  <SectionTitle
+                    icon={Users}
+                    title="Compliance dashboard"
+                    subtitle={demo ? "Your whole group at a glance." : "Stats from activity on this device."}
+                  />
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm text-slate-700">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-2xl border border-slate-100 p-4">
-                      <p className="text-xs text-slate-500">Days logged</p>
-                      <p className="text-2xl font-semibold text-slate-900">{coachStats.daysLogged}</p>
+                  {demo ? (
+                    <>
+                      <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-slate-700">
+                        Sample data for this demo. Your real members appear here once they join.
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <CoachStat label="Active members" value={String(cohort.length)} />
+                        <CoachStat
+                          label="Avg completion"
+                          value={`${Math.round(cohort.reduce((t, m) => t + m.completion, 0) / Math.max(cohort.length, 1))}%`}
+                        />
+                        <CoachStat label="On track (70%+)" value={String(cohort.filter((m) => m.completion >= 70).length)} />
+                        <CoachStat label="Need a nudge" value={String(cohort.filter((m) => m.completion < 50).length)} />
+                      </div>
+                      <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                        <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-2 bg-slate-50 text-xs text-slate-500">
+                          <span>Member</span>
+                          <span>Streak</span>
+                          <span>Completion</span>
+                        </div>
+                        <ScrollArea className="max-h-[360px]">
+                          {cohort.map((m) => (
+                            <div
+                              key={m.name}
+                              className="grid grid-cols-[1fr_auto_auto] gap-3 items-center px-4 py-3 border-t border-slate-100"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <Avatar>
+                                  <AvatarFallback>{initials(m.name)}</AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-slate-900 truncate">{m.name}</p>
+                                  <p className="text-xs text-slate-500">
+                                    {m.completion < 50 ? (
+                                      <span className="text-pink-600 font-medium">Needs a nudge · last in {m.lastCheckIn}</span>
+                                    ) : (
+                                      `Fasting ${m.fastingRate}% · Water ${m.waterRate}%`
+                                    )}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="text-slate-700">{m.streak}d</span>
+                              <span className="font-semibold text-slate-900 w-12 text-right">{m.completion}%</span>
+                            </div>
+                          ))}
+                        </ScrollArea>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <CoachStat label="Days logged" value={String(coachStats.daysLogged)} />
+                      <CoachStat label="Avg completion" value={`${coachStats.avgCompletion}%`} />
+                      <CoachStat label="Fasting days" value={String(coachStats.fastingDays)} />
+                      <CoachStat label="Water goal days" value={String(coachStats.waterGoalDays)} />
                     </div>
-                    <div className="rounded-2xl border border-slate-100 p-4">
-                      <p className="text-xs text-slate-500">Avg completion</p>
-                      <p className="text-2xl font-semibold text-slate-900">{coachStats.avgCompletion}%</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-100 p-4">
-                      <p className="text-xs text-slate-500">Fasting days</p>
-                      <p className="text-2xl font-semibold text-slate-900">{coachStats.fastingDays}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-100 p-4">
-                      <p className="text-xs text-slate-500">Water goal days</p>
-                      <p className="text-2xl font-semibold text-slate-900">{coachStats.waterGoalDays}</p>
-                    </div>
-                  </div>
+                  )}
                   <div className="rounded-2xl bg-slate-50 p-4">
                     <p className="font-medium text-slate-900">Challenge cohort</p>
                     <p className="mt-1">Started {challengeStartDate} · Currently week {currentWeek}</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="rounded-xl" onClick={exportData}>
-                      Export member data
-                    </Button>
-                    <Button variant="outline" className="rounded-xl" onClick={resetAllData}>
-                      Reset all progress
-                    </Button>
-                  </div>
+                  <Button variant="outline" className="rounded-xl" onClick={exportData}>
+                    Export member data
+                  </Button>
+                  {!demo && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <p className="text-xs text-slate-500">Danger zone</p>
+                      <button
+                        type="button"
+                        onClick={resetAllData}
+                        className="mt-1 text-xs font-medium text-pink-600 underline underline-offset-2"
+                      >
+                        Erase all progress on this device
+                      </button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

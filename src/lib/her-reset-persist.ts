@@ -116,15 +116,16 @@ function migrateLegacy(raw: LegacyState): PersistedState {
   };
 }
 
-export function loadPersisted(): PersistedState | null {
+export function loadPersisted(storageKey = STORAGE_KEY): PersistedState | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw) {
       const data = JSON.parse(raw) as PersistedState;
       if (data?.v === 2) return data;
     }
 
+    if (storageKey !== STORAGE_KEY) return null;
     const legacyRaw = localStorage.getItem(LEGACY_KEY);
     if (legacyRaw) {
       const legacy = JSON.parse(legacyRaw) as LegacyState;
@@ -137,19 +138,19 @@ export function loadPersisted(): PersistedState | null {
   }
 }
 
-export function savePersisted(state: PersistedState): void {
+export function savePersisted(state: PersistedState, storageKey = STORAGE_KEY): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(storageKey, JSON.stringify(state));
   } catch {
     // quota or private mode
   }
 }
 
-export function clearPersisted(): void {
+export function clearPersisted(storageKey = STORAGE_KEY): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(LEGACY_KEY);
+  localStorage.removeItem(storageKey);
+  if (storageKey === STORAGE_KEY) localStorage.removeItem(LEGACY_KEY);
 }
 
 export { defaultState };
