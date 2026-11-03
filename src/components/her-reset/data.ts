@@ -89,23 +89,38 @@ export const bloatingTriggers = [
   "Dairy if lactose sensitive",
 ];
 
-export const feedPosts = [
-  {
-    author: "Coach-led",
-    role: "Challenge Coach",
-    title: "Today’s reminder",
-    body: "Your job is not to be perfect. Your job is to complete today’s checklist and protect your eating window.",
-  },
-  {
-    author: "Community",
-    role: "Member Win",
-    title: "Week 2 victory",
-    body: "Three days in a row of hitting water, movement, and protein-first meals is a real win. Small habits create big results.",
-  },
-  {
-    author: "Coach-led",
-    role: "Food Focus",
-    title: "Break your fast with protein",
-    body: "Start with protein so cravings stay lower and your meals stay structured instead of random.",
-  },
-];
+export type FeedPost = { author: string; role: string; title: string; body: string; coach?: boolean };
+
+/** Coach posts use the brand's coach name; member names are fictional samples. */
+export function buildFeedPosts(coachName: string, demo = false): FeedPost[] {
+  const posts: FeedPost[] = [
+    {
+      author: coachName,
+      role: "Challenge Coach",
+      coach: true,
+      title: "Today’s reminder",
+      body: "Your job is not to be perfect. Your job is to complete today’s checklist and protect your eating window.",
+    },
+    {
+      author: "Tasha M.",
+      role: "Member Win · Week 2",
+      title: "Week 2 victory",
+      body: "Three days in a row of hitting water, movement, and protein-first meals. Small habits create big results.",
+    },
+    {
+      author: coachName,
+      role: "Food Focus",
+      coach: true,
+      title: "Break your fast with protein",
+      body: "Start with protein so cravings stay lower and your meals stay structured instead of random.",
+    },
+    {
+      author: "Keisha W.",
+      role: "Member Win · Week 3",
+      title: "Down a notch on my belt",
+      body: "Didn’t think the bowl method would work for me. My jeans say otherwise. Sunday reset day is my favorite part.",
+    },
+  ];
+  // Named member wins are demo samples only; the live app shows coach posts until real members post.
+  return demo ? posts : posts.filter((p) => p.coach);
+}
